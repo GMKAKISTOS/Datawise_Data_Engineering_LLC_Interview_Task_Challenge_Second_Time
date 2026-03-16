@@ -1,0 +1,635 @@
+#!/usr/bin/env python3
+"""
+apex-arena: CLI tool for testing interview task solutions
+
+Usage:
+    apex-arena test-solution <task_name> [--force] [--keep-container] [--verbose]
+    apex-arena list-tasks
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+import re
+
+
+# ANSI color codes
+class Colors:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+
+
+def print_color(msg: str, color: str = "", end: str = "\n"):
+    """Print colored message."""
+    print(f"{color}{msg}{Colors.RESET}", end=end)
+
+
+def print_step(step_num: int, msg: str):
+    """Print a step header."""
+    print_color(f"\n📦 Step {step_num}: ", Colors.BOLD + Colors.BLUE, end="")
+    print(msg)
+
+
+def print_success(msg: str):
+    """Print success message."""
+    print_color(f"✅ {msg}", Colors.GREEN)
+
+
+def print_error(msg: str):
+    """Print error message."""
+    print_color(f"❌ {msg}", Colors.RED)
+
+
+def print_warning(msg: str):
+    """Print warning message."""
+    print_color(f"⚠️  {msg}", Colors.YELLOW)
+
+
+def print_info(msg: str):
+    """Print info message."""
+    print_color(f"ℹ️  {msg}", Colors.CYAN)
+
+
+def get_tasks_dir() -> Path:
+    """Get the tasks directory."""
+    return Path.cwd() / "tasks"
+
+
+def validate_task_structure(task_dir: Path) -> tuple[bool, list[str], list[str]]:
+    """
+    Validate the file structure of a task directory.
+
+    Returns:
+        tuple: (is_valid, errors, warnings)
+    """
+    errors = []
+    warnings = []
+
+    # Required files
+    required_files = {
+        "Dockerfile": "Container configuration",
+        "grader.py": "Grading/validation logic",
+        "solution.sh": "Reference solution",
+        "task.yaml": "Task prompt and metadata",
+    }
+
+    # Required directories
+    required_dirs = {
+        "tests": "Ground truth data (hidden from candidate)",
+    }
+
+    # Optional directories
+    optional_dirs = {
+        "data": "Input files for candidate",
+    }
+
+    # Files that should NOT be in root (common mistakes)
+    forbidden_files = {
+        "validation.json": "Should be in tests/ directory, not root",
+        "input.txt": "Should be in data/ directory, not root",
+        "input.json": "Should be in data/ directory, not root",
+        "output.json": "Should be in tests/ directory, not root",
+        "expected.json": "Should be in tests/ directory, not root",
+    }
+
+    # Check required files
+    for fname, description in required_files.items():
+        fpath = task_dir / fname
+        if not fpath.exists():
+            errors.append(f"Missing required file: {fname} ({description})")
+        elif not fpath.is_file():
+            errors.append(f"{fname} exists but is not a file")
+
+    # Check required directories
+    for dname, description in required_dirs.items():
+        dpath = task_dir / dname
+        if not dpath.exists():
+            errors.append(f"Missing required directory: {dname}/ ({description})")
+        elif not dpath.is_dir():
+            errors.append(f"{dname} exists but is not a directory")
+        else:
+            # Check if tests/ has at least one file
+            if dname == "tests" and not any(dpath.iterdir()):
+                errors.append(f"Directory {dname}/ is empty - needs validation data")
+
+    # Check optional directories
+    for dname, description in optional_dirs.items():
+        dpath = task_dir / dname
+        if dpath.exists() and not dpath.is_dir():
+            errors.append(f"{dname} exists but is not a directory")
+
+    # Check for forbidden files in root
+    for fname, reason in forbidden_files.items():
+        if (task_dir / fname).exists():
+            errors.append(f"Misplaced file: {fname} - {reason}")
+
+    # Validate Dockerfile content
+    dockerfile_path = task_dir / "Dockerfile"
+    if dockerfile_path.exists():
+        try:
+            content = dockerfile_path.read_text()
+            if "FROM python:3.11-slim" not in content:
+                errors.append("Dockerfile must start with 'FROM python:3.11-slim'")
+            if "COPY ./tests/ /tests/" not in content:
+                warnings.append("Dockerfile should copy tests to /tests/")
+            if "COPY ./solution.sh /tests/" not in content:
+                warnings.append("Dockerfile should copy solution.sh to /tests/")
+            if "COPY ./grader.py /tests/" not in content:
+                warnings.append("Dockerfile should copy grader.py to /tests/")
+        except Exception as e:
+            errors.append(f"Cannot read Dockerfile: {e}")
+
+    # Validate solution.sh
+    solution_path = task_dir / "solution.sh"
+    if solution_path.exists():
+        try:
+            content = solution_path.read_text()
+            if not content.startswith("#!"):
+                warnings.append("solution.sh should start with a shebang (e.g., #!/bin/bash)")
+        except Exception as e:
+            errors.append(f"Cannot read solution.sh: {e}")
+
+    # Validate grader.py
+    grader_path = task_dir / "grader.py"
+    if grader_path.exists():
+        try:
+            content = grader_path.read_text()
+            if "def grade(" not in content:
+                errors.append("grader.py must define a 'grade' function")
+            if "GradingResult" not in content:
+                warnings.append("grader.py should use GradingResult from apex_arena._types")
+        except Exception as e:
+            errors.append(f"Cannot read grader.py: {e}")
+
+    # Validate task.yaml
+    task_yaml_path = task_dir / "task.yaml"
+    if task_yaml_path.exists():
+        try:
+            import yaml
+            with open(task_yaml_path) as f:
+                data = yaml.safe_load(f)
+            if not data.get("prompt"):
+                errors.append("task.yaml must have a 'prompt' field")
+            if not data.get("metadata"):
+                warnings.append("task.yaml should have a 'metadata' field")
+            elif not data["metadata"].get("difficulty"):
+                warnings.append("task.yaml metadata should include 'difficulty'")
+        except ImportError:
+            pass  # PyYAML not installed, skip validation
+        except Exception as e:
+            errors.append(f"Cannot parse task.yaml: {e}")
+
+    # Check for unexpected files
+    expected_items = set(required_files.keys()) | set(required_dirs.keys()) | set(optional_dirs.keys())
+    expected_items.add("__pycache__")  # Allow Python cache
+    expected_items.add(".DS_Store")     # Allow macOS files
+    expected_items.add("report.json")   # Allow report files
+
+    for item in task_dir.iterdir():
+        if item.name not in expected_items:
+            if item.is_file():
+                warnings.append(f"Unexpected file in task root: {item.name}")
+            elif item.is_dir() and item.name not in ["__pycache__", ".git"]:
+                warnings.append(f"Unexpected directory in task root: {item.name}/")
+
+    is_valid = len(errors) == 0
+    return is_valid, errors, warnings
+
+
+def cmd_validate_task(args):
+    """Handle validate-task command."""
+    task_id = args.task
+
+    print_color(f"\n🔍 Validating Task Structure: {task_id}\n", Colors.BOLD + Colors.CYAN)
+
+    task_dir = get_tasks_dir() / task_id
+    if not task_dir.exists():
+        print_error(f"Task directory not found: {task_dir}")
+        print_info(f"Available tasks: {', '.join(list_tasks()) or 'none'}")
+        sys.exit(1)
+
+    is_valid, errors, warnings = validate_task_structure(task_dir)
+
+    # Display errors
+    if errors:
+        print_color("❌ Errors (must fix):", Colors.RED + Colors.BOLD)
+        for error in errors:
+            print_color(f"  • {error}", Colors.RED)
+        print()
+
+    # Display warnings
+    if warnings:
+        print_color("⚠️  Warnings (recommended to fix):", Colors.YELLOW + Colors.BOLD)
+        for warning in warnings:
+            print_color(f"  • {warning}", Colors.YELLOW)
+        print()
+
+    # Summary
+    if is_valid and not warnings:
+        print_success("Task structure is valid!")
+        sys.exit(0)
+    elif is_valid:
+        print_color("✅ Task structure is valid (with warnings)", Colors.GREEN)
+        sys.exit(0)
+    else:
+        print_error("Task structure is INVALID - please fix the errors above")
+        sys.exit(1)
+
+
+def list_tasks() -> list[str]:
+    """List all available tasks."""
+    tasks_dir = get_tasks_dir()
+    if not tasks_dir.exists():
+        return []
+
+    tasks = []
+    for item in tasks_dir.iterdir():
+        if item.is_dir() and (item / "Dockerfile").exists():
+            tasks.append(item.name)
+    return sorted(tasks)
+
+
+def check_docker_image_exists(image_name: str) -> bool:
+    """Check if a Docker image exists."""
+    result = subprocess.run(
+        ["docker", "images", "-q", image_name],
+        capture_output=True,
+        text=True
+    )
+    return bool(result.stdout.strip())
+
+
+def build_task_image(task_id: str, force: bool = False) -> str:
+    """Build the Docker image for a task."""
+    task_dir = get_tasks_dir() / task_id
+    safe_repo = "apex_arena_task"
+    image_name = f"{safe_repo}:latest"
+
+    # Check if task image already exists and we're not forcing rebuild
+    if not force and check_docker_image_exists(image_name):
+        print_info(f"Using existing image: {image_name}")
+        return image_name
+
+    print_info(f"Building task image: {image_name}...")
+
+    # Build the image
+    result = subprocess.run(
+        ["docker", "build", "-t", image_name, str(task_dir)],
+        capture_output=True,
+        text=True
+    )
+
+    if result.returncode != 0:
+        print_error(f"Failed to build image:\n{result.stderr}")
+        sys.exit(1)
+
+    print_success(f"Image built: {image_name}")
+    return image_name
+
+
+def run_solution_and_grade(task_id: str, image_name: str, keep_container: bool = False, verbose: bool = False) -> dict:
+    """Run solution.sh and grader.py in the container."""
+
+    task_dir = get_tasks_dir() / task_id
+    container_name = f"apex_test_{task_id}_{int(time.time())}"
+
+    # Create grader script that mocks apex_arena._types
+    grader_script = '''
+import sys
+import json
+from typing import Dict, Optional, Any
+
+# Create mock GradingResult class
+class MockGradingResult:
+    def __init__(self, score: float, subscores: Dict[str, float] = None,
+                 weights: Dict[str, float] = None, feedback: Optional[str] = None,
+                 details: Optional[Dict[str, Any]] = None):
+        self.score = score
+        self.subscores = subscores or {}
+        self.weights = weights or {}
+        self.feedback = feedback
+        self.details = details
+
+# Create mock module structure
+class MockTypes:
+    GradingResult = MockGradingResult
+
+class MockApexArena:
+    _types = MockTypes()
+
+# Inject into sys.modules before importing grader
+sys.modules['apex_arena'] = MockApexArena()
+sys.modules['apex_arena._types'] = MockTypes()
+
+# Import and run grader
+import os
+sys.path.insert(0, '/tests')
+from grader import grade
+
+try:
+    result = grade("")
+    result_dict = {
+        "score": result.score,
+        "subscores": result.subscores,
+        "weights": result.weights,
+        "feedback": result.feedback
+    }
+    print(json.dumps(result_dict))
+except Exception as e:
+    print(json.dumps({"error": str(e), "score": 0.0}))
+'''
+
+    # Write grader script to temp file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+        f.write(grader_script)
+        grader_script_path = f.name
+
+    try:
+        # Start container
+        print_info(f"Starting container: {container_name}")
+
+        start_cmd = [
+            "docker", "run", "-d",
+            "--name", container_name,
+            "-v", f"{grader_script_path}:/tmp/grade_script.py:ro",
+            image_name,
+            "tail", "-f", "/dev/null"  # Keep container running
+        ]
+
+        result = subprocess.run(start_cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print_error(f"Failed to start container:\n{result.stderr}")
+            return {"score": 0.0, "error": "Container start failed"}
+
+        # Copy solution.sh to /workdir and fix permissions (as root)
+        print_info("Preparing solution environment...")
+        prep_cmd = [
+            "docker", "exec",
+            container_name,
+            "bash", "-c",
+            "cp /tests/solution.sh /workdir/solution.sh && chmod +x /workdir/solution.sh && chown model:model /workdir/solution.sh"
+        ]
+        subprocess.run(prep_cmd, capture_output=True, text=True)
+
+        # Run solution.sh
+        print_step(2, "Running solution.sh...")
+
+        solution_cmd = [
+            "docker", "exec",
+            "-u", "model",
+            "-w", "/workdir",
+            container_name,
+            "bash", "-c", "./solution.sh"
+        ]
+
+        result = subprocess.run(solution_cmd, capture_output=True, text=True, timeout=1800)
+
+        if verbose or result.returncode != 0:
+            if result.stdout:
+                print(result.stdout)
+            if result.stderr:
+                print_color(result.stderr, Colors.DIM)
+        else:
+            # Show abbreviated output
+            lines = result.stdout.strip().split('\n')
+            if len(lines) > 20:
+                print('\n'.join(lines[:10]))
+                print_color(f"... ({len(lines) - 20} lines omitted) ...", Colors.DIM)
+                print('\n'.join(lines[-10:]))
+            else:
+                print(result.stdout)
+
+        if result.returncode != 0:
+            print_error("solution.sh failed!")
+            return {"score": 0.0, "error": "Solution execution failed", "stderr": result.stderr}
+
+        print_success("solution.sh completed")
+
+        # Run grader
+        print_step(3, "Running grader.py...")
+
+        grade_cmd = [
+            "docker", "exec",
+            "-w", "/tests",
+            container_name,
+            "python3", "/tmp/grade_script.py"
+        ]
+
+        result = subprocess.run(grade_cmd, capture_output=True, text=True, timeout=300)
+
+        if result.returncode != 0:
+            print_error(f"Grader failed:\n{result.stderr}")
+            return {"score": 0.0, "error": "Grader execution failed"}
+
+        # Parse grader output
+        try:
+            grade_result = json.loads(result.stdout.strip())
+            return grade_result
+        except json.JSONDecodeError:
+            print_error(f"Failed to parse grader output:\n{result.stdout}")
+            return {"score": 0.0, "error": "Invalid grader output"}
+
+    except subprocess.TimeoutExpired:
+        print_error("Execution timed out!")
+        return {"score": 0.0, "error": "Timeout"}
+
+    finally:
+        # Cleanup container
+        if not keep_container:
+            subprocess.run(
+                ["docker", "rm", "-f", container_name],
+                capture_output=True
+            )
+        else:
+            print_info(f"Container kept for debugging: {container_name}")
+            print_info(f"  Inspect: docker exec -it {container_name} bash")
+            print_info(f"  Remove:  docker rm -f {container_name}")
+
+        # Cleanup temp file
+        os.unlink(grader_script_path)
+
+
+def display_results(grade_result: dict, task_id: str):
+    """Display grading results in a nice format."""
+
+    score = grade_result.get("score", 0.0)
+    subscores = grade_result.get("subscores", {})
+    feedback = grade_result.get("feedback", "")
+    error = grade_result.get("error")
+
+    print_color("\n" + "=" * 60, Colors.BOLD)
+    print_color(f"🎯 Final Score: {score}", Colors.BOLD)
+    print_color("=" * 60, Colors.BOLD)
+
+    if error:
+        print_error(f"Error: {error}")
+
+    if score >= 1.0:
+        print_color("🌟 SUCCESS: Solution achieved full score!", Colors.GREEN + Colors.BOLD)
+    elif score >= 0.8:
+        print_color(f"⚠️  PARTIAL: Score {score} (expected 1.0)", Colors.YELLOW + Colors.BOLD)
+    else:
+        print_color(f"❌ FAILURE: Score {score}", Colors.RED + Colors.BOLD)
+
+    if subscores:
+        print_color("\n📋 Detailed Scoring:", Colors.BOLD)
+        for name, subscore in subscores.items():
+            icon = "✅" if subscore >= 1.0 else "❌"
+            print(f"  {icon} {name}: {subscore}")
+
+    if feedback:
+        print_color("\n💬 Feedback:", Colors.BOLD)
+        # Split feedback by semicolons for readability
+        for line in feedback.split("; "):
+            if line.strip():
+                print(f"  {line.strip()}")
+
+    print()
+    return score >= 1.0
+
+
+def cmd_test_solution(args):
+    """Handle test-solution command."""
+    task_id = args.task
+    force = args.force
+    keep_container = args.keep_container
+    verbose = args.verbose
+
+    print_color(f"\n🧪 Testing Solution for Task: {task_id}\n", Colors.BOLD + Colors.CYAN)
+
+    # Check task exists
+    task_dir = get_tasks_dir() / task_id
+    if not task_dir.exists():
+        print_error(f"Task directory not found: {task_dir}")
+        print_info(f"Available tasks: {', '.join(list_tasks()) or 'none'}")
+        sys.exit(1)
+
+    # Validate task structure
+    print_info("Validating task structure...")
+    is_valid, errors, warnings = validate_task_structure(task_dir)
+
+    if errors:
+        print_color("\n❌ Task structure errors:", Colors.RED + Colors.BOLD)
+        for error in errors:
+            print_color(f"  • {error}", Colors.RED)
+        print()
+        print_error("Please fix the errors above before testing.")
+        print_info("Run './apex-arena validate-task " + task_id + "' for full validation details.")
+        sys.exit(1)
+
+    if warnings:
+        print_color("\n⚠️  Warnings:", Colors.YELLOW)
+        for warning in warnings[:3]:  # Show first 3 warnings
+            print_color(f"  • {warning}", Colors.YELLOW)
+        if len(warnings) > 3:
+            print_color(f"  ... and {len(warnings) - 3} more warnings", Colors.DIM)
+        print()
+
+    print_success("Task structure is valid")
+
+    # Build image
+    print_step(1, "Building task container...")
+    image_name = build_task_image(task_id, force)
+
+    # Run solution and grade
+    grade_result = run_solution_and_grade(task_id, image_name, keep_container, verbose)
+
+    # Display results
+    success = display_results(grade_result, task_id)
+
+    print_color(f"✅ Task solution testing completed for: {task_id}\n", Colors.GREEN)
+
+    sys.exit(0 if success else 1)
+
+
+def cmd_list_tasks(args):
+    """Handle list-tasks command."""
+    tasks = list_tasks()
+
+    if not tasks:
+        print_warning("No tasks found in ./tasks/ directory")
+        return
+
+    print_color("\n📋 Available Tasks:\n", Colors.BOLD + Colors.CYAN)
+    for task in tasks:
+        task_dir = get_tasks_dir() / task
+
+        # Try to read task.yaml for metadata
+        task_yaml = task_dir / "task.yaml"
+        difficulty = "unknown"
+        if task_yaml.exists():
+            try:
+                import yaml
+                with open(task_yaml) as f:
+                    data = yaml.safe_load(f)
+                    difficulty = data.get("metadata", {}).get("difficulty", "unknown")
+            except:
+                pass
+
+        print(f"  • {task} ({difficulty})")
+
+    print()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="apex-arena: CLI tool for testing interview task solutions",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  apex-arena test-solution maze_tsp          # Test the maze_tsp task
+  apex-arena test-solution maze_tsp --force  # Force rebuild the Docker image
+  apex-arena list-tasks                      # List all available tasks
+"""
+    )
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # test-solution command
+    test_parser = subparsers.add_parser(
+        "test-solution",
+        help="Test a task by running its solution.sh and grading the result"
+    )
+    test_parser.add_argument("task", help="Task name (directory in ./tasks/)")
+    test_parser.add_argument("--force", "-f", action="store_true", help="Force rebuild Docker image")
+    test_parser.add_argument("--keep-container", "-k", action="store_true", help="Keep container after test for debugging")
+    test_parser.add_argument("--verbose", "-v", action="store_true", help="Show full output")
+    test_parser.set_defaults(func=cmd_test_solution)
+
+    # list-tasks command
+    list_parser = subparsers.add_parser(
+        "list-tasks",
+        help="List all available tasks"
+    )
+    list_parser.set_defaults(func=cmd_list_tasks)
+
+    # validate-task command
+    validate_parser = subparsers.add_parser(
+        "validate-task",
+        help="Validate a task's file structure"
+    )
+    validate_parser.add_argument("task", help="Task name (directory in ./tasks/)")
+    validate_parser.set_defaults(func=cmd_validate_task)
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,348 @@
+{
+  "validation_results": [
+    {
+      "document_id": "doc_001",
+      "schema_id": "schema_user",
+      "valid": true
+    },
+    {
+      "errors": []
+    },
+    {
+      "document_id": "doc_002",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.id",
+          "message": "id must be a positive integer",
+          "constraint": "minimum",
+          "expected": "integer >= 1",
+          "actual": "not_an_integer"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_002",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.username",
+          "message": "username must be 3-20 alphanumeric/underscore characters",
+          "constraint": "pattern",
+          "expected": "3-20 chars, [a-zA-Z0-9_]",
+          "actual": "ab"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_002",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.email",
+          "message": "Invalid email format",
+          "constraint": "format",
+          "expected": "email",
+          "actual": "invalid-email"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_002",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.age",
+          "message": "age must be an integer between 0 and 150",
+          "constraint": "minimum",
+          "expected": "0 <= age <= 150",
+          "actual": "200"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_002",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.role",
+          "message": "role must be one of: admin, user, guest",
+          "constraint": "enum",
+          "expected": "admin | user | guest",
+          "actual": "superuser"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_003",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.age",
+          "message": "Required field age is missing",
+          "constraint": "required",
+          "expected": "field age to be present",
+          "actual": "field absent"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_004",
+      "schema_id": "schema_product",
+      "valid": true
+    },
+    {
+      "errors": []
+    },
+    {
+      "document_id": "doc_005",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.sku",
+          "message": "sku must match pattern XXX-0000",
+          "constraint": "pattern",
+          "expected": "^[A-Z]{3}-[0-9]{4}$",
+          "actual": "invalid-sku"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_005",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.name",
+          "message": "name must be a string of 1-100 characters",
+          "constraint": "type",
+          "expected": "string, length 1-100",
+          "actual": ""
+        }
+      ]
+    },
+    {
+      "document_id": "doc_005",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.price",
+          "message": "price must be a positive number",
+          "constraint": "minimum",
+          "expected": "> 0",
+          "actual": "0"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_005",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.quantity",
+          "message": "quantity must be an integer >= 0",
+          "constraint": "minimum",
+          "expected": ">= 0",
+          "actual": "-5"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_005",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.tags",
+          "message": "tags must be a list of up to 5 unique values",
+          "constraint": "uniqueItems",
+          "expected": "list, max 5, no duplicates",
+          "actual": "['a', 'b', 'c', 'd', 'e', 'f']"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_005",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.active",
+          "message": "active must be a boolean",
+          "constraint": "type",
+          "expected": "boolean",
+          "actual": "yes"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_006",
+      "schema_id": "schema_product",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.tags",
+          "message": "tags must be a list of up to 5 unique values",
+          "constraint": "uniqueItems",
+          "expected": "list, max 5, no duplicates",
+          "actual": "['home', 'home', 'kitchen']"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_007",
+      "schema_id": "schema_order",
+      "valid": true
+    },
+    {
+      "errors": []
+    },
+    {
+      "document_id": "doc_008",
+      "schema_id": "schema_order",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.order_id",
+          "message": "order_id must be a valid UUID string",
+          "constraint": "format",
+          "expected": "UUID v4",
+          "actual": "not-a-uuid"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_008",
+      "schema_id": "schema_order",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.customer_email",
+          "message": "Invalid customer_email format",
+          "constraint": "format",
+          "expected": "email",
+          "actual": "bad-email"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_008",
+      "schema_id": "schema_order",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.items",
+          "message": "items must be a non-empty list",
+          "constraint": "minimum",
+          "expected": "list with >= 1 item",
+          "actual": "[]"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_008",
+      "schema_id": "schema_order",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.total",
+          "message": "total must be a number >= 0",
+          "constraint": "minimum",
+          "expected": ">= 0",
+          "actual": "-50"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_009",
+      "schema_id": "schema_order",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.items",
+          "message": "product_name must be a string, quantity must be >= 1, (unit_price must be >= 0 or >= 0.0)",
+          "constraint": "minimum",
+          "expected": "product_name must be a string, quantity must be >= 1, (unit_price must be >= 0 or >= 0.0)",
+          "actual": "{'product_name': 'Keyboard', 'quantity': 0, 'unit_price': 75.0}"
+        }
+      ]
+    },
+    {
+      "document_id": "doc_010",
+      "schema_id": "schema_user",
+      "valid": false
+    },
+    {
+      "errors": [
+        {
+          "path": "$.extra_field",
+          "message": "Additional property extra_field is not allowed",
+          "constraint": "additionalProperties",
+          "expected": "no extra fields",
+          "actual": "extra_field"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total_documents": 10,
+    "valid_documents": 3,
+    "invalid_documents": 7,
+    "total_errors": 19,
+    "errors": {
+      "minimum": 7,
+      "pattern": 2,
+      "format": 3,
+      "enum": 1,
+      "required": 1,
+      "type": 2,
+      "uniqueItems": 2,
+      "additionalProperties": 1
+    }
+  }
+}

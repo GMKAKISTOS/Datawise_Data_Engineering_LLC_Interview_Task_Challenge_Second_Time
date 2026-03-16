@@ -1,0 +1,70 @@
+prompt: |
+  
+  ## 1. What problem the agent needs to solve
+
+  Build a data validation program in python that reads a json file and checks whether the data objects in it conform to their schemas.
+
+  ## 2. Where input files are located
+
+  The input files are at /workdir/data/validation_request.json. It's a json file where each entry is either a schema or a data object. The program should separate these into two lists and match each data object to the right schema based on field names.
+
+  ## 3. Where to write output files
+  
+  The output files should be written at /workdir/validation_results.json.
+  
+  ## 4. Exact output format expected
+
+  If all validations pass successfully print Final Score: 1.0 else print Final Score: 0.0
+
+  ## 5. All validation rules and requirements
+
+  For each data object run the following checks:
+
+  - Schema check
+    - If the schema has additionalProperties: false reject any fields that are not in the schema.
+    - All fields listed under required must exist.
+
+  - Field check
+    - id — integer, must be >= 1
+    - username — string, must have 3 – 20 chars and only letters, digits, underscores
+    - email — string must match a valid email pattern
+    - age — integer, must be between 0 and 150
+    - role — string, must be one of: admin, user, guest
+    - sku — string, must be formatted like -> ABC-1234 - (3 uppercase letters, dash, 4 digits)
+    - name — string, must be 1 – 100 characters
+    - price — number, must be > 0
+    - quantity — integer, must be >= 0
+    - tags — array list, must have max 5 items and no duplicates (unique items)
+    - active — boolean
+    - order_id — valid UUID string
+    - customer_email — string must match a valid email pattern
+    - items — array list with at least 1 item. Each item needs:
+      - product_name - string
+      - quantity - integer, must be >= 1
+      - unit_price - number, must be >= 0
+    - total — number, must be >= 0
+    - order_date — string in YYYY-MM-DD format
+
+  ## 5.1 Error handling
+
+  - If the file doesn't exist or can't be parsed as json then has 0 errors but the score should be 0.0
+
+  ## 6. Allowed libraries/tools
+
+  libraries/tools: json, re, uuid, numbers, datetime, Path, apex_arena._types
+
+metadata:
+  difficulty: hard
+  category: data_validation
+  required_tools:
+    - bash
+    - python
+  tags:
+    - json
+    - schema
+    - validation
+  time_limit: 600
+  memory_limit: 512
+  max_agent_timeout_sec: 400
+  expert_time_estimate_min: 25
+  junior_time_estimate_min: 50
