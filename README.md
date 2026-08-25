@@ -56,6 +56,7 @@ Working with Docker
 Running applications in containers
 Debugging and fixing validation issues
 Working with a software engineering task from requirements to solution
+
 Requirements
 
 To run or modify this project you need:
